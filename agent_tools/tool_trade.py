@@ -2,8 +2,15 @@ from fastmcp import FastMCP
 import sys
 import os
 from typing import Dict, List, Optional, Any
-import fcntl
 from pathlib import Path
+import platform
+
+# Cross-platform file locking
+if platform.system() == 'Windows':
+    import msvcrt
+else:
+    import fcntl
+
 # Add project root directory to Python path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
@@ -23,11 +30,21 @@ def _position_lock(signature: str):
             # Ensure lock file exists
             self._fh = open(self.lock_path, "a+")
         def __enter__(self):
-            fcntl.flock(self._fh.fileno(), fcntl.LOCK_EX)
+            if platform.system() == 'Windows':
+                # Windows file locking
+                msvcrt.locking(self._fh.fileno(), msvcrt.LK_LOCK, 1)
+            else:
+                # Unix/Linux file locking
+                fcntl.flock(self._fh.fileno(), fcntl.LOCK_EX)
             return self
         def __exit__(self, exc_type, exc, tb):
             try:
-                fcntl.flock(self._fh.fileno(), fcntl.LOCK_UN)
+                if platform.system() == 'Windows':
+                    # Windows unlock
+                    msvcrt.locking(self._fh.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    # Unix/Linux unlock
+                    fcntl.flock(self._fh.fileno(), fcntl.LOCK_UN)
             finally:
                 self._fh.close()
     return _Lock(signature)

@@ -361,14 +361,31 @@ class BaseAgent:
                     if max_date is None:
                         max_date = current_date
                     else:
-                        current_date_obj = datetime.strptime(current_date, "%Y-%m-%d")
-                        max_date_obj = datetime.strptime(max_date, "%Y-%m-%d")
+                        # Handle both date formats: "YYYY-MM-DD" and "YYYY-MM-DD HH:MM:SS"
+                        if ' ' in current_date:
+                            current_date_obj = datetime.strptime(current_date, "%Y-%m-%d %H:%M:%S")
+                        else:
+                            current_date_obj = datetime.strptime(current_date, "%Y-%m-%d")
+                        
+                        if ' ' in max_date:
+                            max_date_obj = datetime.strptime(max_date, "%Y-%m-%d %H:%M:%S")
+                        else:
+                            max_date_obj = datetime.strptime(max_date, "%Y-%m-%d")
+                        
                         if current_date_obj > max_date_obj:
                             max_date = current_date
         
         # Check if new dates need to be processed
-        max_date_obj = datetime.strptime(max_date, "%Y-%m-%d")
-        end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
+        # Handle both date formats
+        if ' ' in max_date:
+            max_date_obj = datetime.strptime(max_date, "%Y-%m-%d %H:%M:%S")
+        else:
+            max_date_obj = datetime.strptime(max_date, "%Y-%m-%d")
+        
+        if ' ' in end_date:
+            end_date_obj = datetime.strptime(end_date, "%Y-%m-%d %H:%M:%S")
+        else:
+            end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
         
         if end_date_obj <= max_date_obj:
             return []
