@@ -122,6 +122,7 @@ async def _run_model_in_current_process(AgentClass, model_config, INIT_DATE, END
     runtime_env_path = runtime_env_dir / ".runtime_env.json"
     os.environ["RUNTIME_ENV_PATH"] = str(runtime_env_path)
     os.environ["SIGNATURE"] = signature
+    write_config_value("SIGNATURE", signature)
     write_config_value("TODAY_DATE", END_DATE)
     write_config_value("IF_TRADE", False)
 
@@ -216,6 +217,14 @@ async def main(config_path=None, only_signature: str | None = None):
     if os.getenv("END_DATE"):
         END_DATE = os.getenv("END_DATE")
         print(f"⚠️  Using environment variable to override END_DATE: {END_DATE}")
+    
+    # Convert date-only format to include opening hour (10:00:00) for intraday data
+    if ' ' not in INIT_DATE:
+        INIT_DATE = f"{INIT_DATE} 10:00:00"
+        print(f"📅 Converted INIT_DATE to opening hour: {INIT_DATE}")
+    if ' ' not in END_DATE:
+        END_DATE = f"{END_DATE} 10:00:00"
+        print(f"📅 Converted END_DATE to opening hour: {END_DATE}")
 
     # Validate date range
     # Support both YYYY-MM-DD and YYYY-MM-DD HH:MM:SS formats

@@ -168,7 +168,17 @@ def get_open_prices(today_date: str, symbols: List[str], merged_path: Optional[s
                     break
             if not isinstance(series, dict):
                 continue
+            
+            # Try exact match first (daily format)
             bar = series.get(today_date)
+            
+            # If no exact match and series exists, try hourly format (timestamps starting with date)
+            if bar is None and series:
+                matching_entries = {k: v for k, v in series.items() if k.startswith(today_date)}
+                if matching_entries:
+                    # Use earliest timestamp for the date
+                    earliest_time = sorted(matching_entries.keys())[0]
+                    bar = matching_entries[earliest_time]
             
             if isinstance(bar, dict):
                 open_val = bar.get("1. buy price")
@@ -227,8 +237,17 @@ def get_yesterday_open_and_close_price(today_date: str, symbols: List[str], merg
             if not isinstance(series, dict):
                 continue
             
-            # 尝试获取昨日买入价和卖出价
+            # 尝试获取昨日买入价和卖出价 - Try exact match first (daily format)
             bar = series.get(yesterday_date)
+            
+            # If no exact match and series exists, try hourly format (timestamps starting with date)
+            if bar is None and series:
+                matching_entries = {k: v for k, v in series.items() if k.startswith(yesterday_date)}
+                if matching_entries:
+                    # Use earliest timestamp for the date
+                    earliest_time = sorted(matching_entries.keys())[0]
+                    bar = matching_entries[earliest_time]
+            
             if isinstance(bar, dict):
                 buy_val = bar.get("1. buy price")  # 买入价字段
                 sell_val = bar.get("4. sell price")  # 卖出价字段
@@ -345,7 +364,12 @@ def get_today_init_position(today_date: str, signature: str) -> Dict[str, float]
                 continue
             try:
                 doc = json.loads(line)
-                if doc.get("date") == yesterday_date:
+                record_date = doc.get("date", "")
+                # Handle both "YYYY-MM-DD" and "YYYY-MM-DD HH:MM:SS" formats
+                record_date_only = record_date.split()[0] if ' ' in record_date else record_date
+                yesterday_date_only = yesterday_date.split()[0] if ' ' in yesterday_date else yesterday_date
+                
+                if record_date_only == yesterday_date_only:
                     current_id = doc.get("id", 0)
                     if current_id > max_id:
                         max_id = current_id
@@ -386,7 +410,12 @@ def get_latest_position(today_date: str, signature: str) -> Tuple[Dict[str, floa
                 continue
             try:
                 doc = json.loads(line)
-                if doc.get("date") == today_date:
+                record_date = doc.get("date", "")
+                # Handle both "YYYY-MM-DD" and "YYYY-MM-DD HH:MM:SS" formats
+                record_date_only = record_date.split()[0] if ' ' in record_date else record_date
+                today_date_only = today_date.split()[0] if ' ' in today_date else today_date
+                
+                if record_date_only == today_date_only:
                     current_id = doc.get("id", -1)
                     if current_id > max_id_today:
                         max_id_today = current_id
@@ -409,7 +438,12 @@ def get_latest_position(today_date: str, signature: str) -> Tuple[Dict[str, floa
                 continue
             try:
                 doc = json.loads(line)
-                if doc.get("date") == prev_date:
+                record_date = doc.get("date", "")
+                # Handle both "YYYY-MM-DD" and "YYYY-MM-DD HH:MM:SS" formats
+                record_date_only = record_date.split()[0] if ' ' in record_date else record_date
+                prev_date_only = prev_date.split()[0] if ' ' in prev_date else prev_date
+                
+                if record_date_only == prev_date_only:
                     current_id = doc.get("id", -1)
                     if current_id > max_id_prev:
                         max_id_prev = current_id
@@ -430,13 +464,19 @@ def add_no_trade_record(today_date: str, signature: str):
         None
     """
     save_item = {}
-    current_position, current_action_id = get_latest_position(today_date, signature)
+    # Get yesterday's final position to carry forward (not today's which might be empty/partial)
+    yesterday_date = get_yesterday_date(today_date)
+    yesterday_position, yesterday_action_id = get_latest_position(yesterday_date, signature)
+    
+    # Get today's max ID to increment from
+    _, today_max_id = get_latest_position(today_date, signature)
+    next_id = max(yesterday_action_id, today_max_id) + 1
     
     save_item["date"] = today_date
-    save_item["id"] = current_action_id+1
+    save_item["id"] = next_id
     save_item["this_action"] = {"action":"no_trade","symbol":"","amount":0}
     
-    save_item["positions"] = current_position
+    save_item["positions"] = yesterday_position
     base_dir = Path(__file__).resolve().parents[1]
     position_file = base_dir / "data" / "agent_data" / signature / "position" / "position.jsonl"
 

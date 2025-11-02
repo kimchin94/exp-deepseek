@@ -1,0 +1,7 @@
+{"date": "2025-10-23 09:00:00", "id": 0, "this_action": {"action": "init", "symbol": "", "amount": 0}, "positions": {"CASH": 10000.0}}
+{"date": "2025-10-24", "id": 1, "this_action": {"action": "buy", "symbol": "AMD", "amount": 8}, "positions": {"CASH": 7997.12, "AMD": 8}}
+{"date": "2025-10-24", "id": 2, "this_action": {"action": "buy", "symbol": "AAPL", "amount": 7}, "positions": {"CASH": 6175.72, "AMD": 8, "AAPL": 7}}
+{"date": "2025-10-24", "id": 3, "this_action": {"action": "buy", "symbol": "NVDA", "amount": 10}, "positions": {"CASH": 4320.120000000001, "AMD": 8, "AAPL": 7, "NVDA": 10}}
+{"date": "2025-10-24", "id": 4, "this_action": {"action": "buy", "symbol": "ASML", "amount": 2}, "positions": {"CASH": 2243.8542000000007, "AMD": 8, "AAPL": 7, "NVDA": 10, "ASML": 2}}
+{"date": "2025-10-24", "id": 5, "this_action": {"action": "buy", "symbol": "MSFT", "amount": 3}, "positions": {"CASH": 674.7942000000007, "AMD": 8, "AAPL": 7, "NVDA": 10, "ASML": 2, "MSFT": 3}}
+{"date": "2025-10-24", "id": 6, "this_action": {"action": "buy", "symbol": "GOOGL", "amount": 2}, "positions": {"CASH": 154.73420000000078, "AMD": 8, "AAPL": 7, "NVDA": 10, "ASML": 2, "MSFT": 3, "GOOGL": 2}}

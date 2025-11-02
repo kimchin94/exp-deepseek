@@ -100,10 +100,30 @@ def get_price_local_daily(symbol: str, date: str) -> Dict[str, Any]:
             meta = doc.get("Meta Data", {})
             if meta.get("2. Symbol") != symbol:
                 continue
+            
+            # Try to get daily data first
             series = doc.get("Time Series (Daily)", {})
             day = series.get(date)
+            
+            # If daily data not found, fall back to hourly data
+            if day is None and not series:
+                hourly_series = doc.get("Time Series (60min)", {})
+                if hourly_series:
+                    # Filter hourly data for the requested date
+                    matching_entries = {k: v for k, v in hourly_series.items() if k.startswith(date)}
+                    if matching_entries:
+                        # Use the first entry of the day (earliest time)
+                        earliest_time = sorted(matching_entries.keys())[0]
+                        day = matching_entries[earliest_time]
+                        series = hourly_series  # Update series for error message
+            
             if day is None:
-                sample_dates = sorted(series.keys(), reverse=True)[:5]
+                sample_dates = sorted(series.keys(), reverse=True)[:5] if series else []
+                # Extract unique dates from hourly timestamps if applicable
+                if not sample_dates and doc.get("Time Series (60min)"):
+                    hourly_keys = doc.get("Time Series (60min)", {}).keys()
+                    unique_dates = sorted(set(k.split()[0] for k in hourly_keys if ' ' in k), reverse=True)[:5]
+                    sample_dates = unique_dates
                 return {
                     "error": f"Data not found for date {date}. Please verify the date exists in data. Sample available dates: {sample_dates}",
                     "symbol": symbol,

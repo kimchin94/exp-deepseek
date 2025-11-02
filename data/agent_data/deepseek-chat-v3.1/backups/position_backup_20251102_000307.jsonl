@@ -1,0 +1,20 @@
+{"date": "2025-10-23 09:00:00", "id": 0, "this_action": {"action": "init", "symbol": "", "amount": 0}, "positions": {"CASH": 10000.0}}
+{"date": "2025-10-24", "id": 1, "this_action": {"action": "buy", "symbol": "AAPL", "amount": 10}, "positions": {"CASH": 7398.0, "AAPL": 10}}
+{"date": "2025-10-24", "id": 2, "this_action": {"action": "buy", "symbol": "GOOGL", "amount": 10}, "positions": {"CASH": 4797.700000000001, "AAPL": 10, "GOOGL": 10}}
+{"date": "2025-10-24", "id": 3, "this_action": {"action": "buy", "symbol": "NVDA", "amount": 10}, "positions": {"CASH": 2942.100000000001, "AAPL": 10, "GOOGL": 10, "NVDA": 10}}
+{"date": "2025-10-24", "id": 4, "this_action": {"action": "buy", "symbol": "AMD", "amount": 10}, "positions": {"CASH": 438.50000000000045, "AAPL": 10, "GOOGL": 10, "NVDA": 10, "AMD": 10}}
+{"date": "2025-10-24", "id": 5, "this_action": {"action": "buy", "symbol": "PLTR", "amount": 2}, "positions": {"CASH": 67.24000000000046, "AAPL": 10, "GOOGL": 10, "NVDA": 10, "AMD": 10, "PLTR": 2}}
+{"date": "2025-10-27", "id": 6, "this_action": {"action": "sell", "symbol": "PLTR", "amount": 2}, "positions": {"CASH": 450.81980000000044, "AAPL": 10, "GOOGL": 10, "NVDA": 10, "AMD": 10, "PLTR": 0}}
+{"date": "2025-10-27", "id": 7, "this_action": {"action": "buy", "symbol": "NVDA", "amount": 2}, "positions": {"CASH": 68.70980000000043, "AAPL": 10, "GOOGL": 10, "NVDA": 12, "AMD": 10, "PLTR": 0}}
+{"date": "2025-10-28", "id": 8, "this_action": {"action": "sell", "symbol": "AMD", "amount": 5}, "positions": {"CASH": 1373.9098000000004, "AAPL": 10, "GOOGL": 10, "NVDA": 12, "AMD": 5, "PLTR": 0}}
+{"date": "2025-10-28", "id": 9, "this_action": {"action": "buy", "symbol": "PLTR", "amount": 5}, "positions": {"CASH": 420.2598000000004, "AAPL": 10, "GOOGL": 10, "NVDA": 12, "AMD": 5, "PLTR": 5}}
+{"date": "2025-10-28", "id": 10, "this_action": {"action": "buy", "symbol": "ARM", "amount": 2}, "positions": {"CASH": 68.71980000000036, "AAPL": 10, "GOOGL": 10, "NVDA": 12, "AMD": 5, "PLTR": 5, "ARM": 2}}
+{"date": "2025-10-29", "id": 11, "this_action": {"action": "sell", "symbol": "PLTR", "amount": 2}, "positions": {"CASH": 462.0798000000004, "AAPL": 10, "GOOGL": 10, "NVDA": 12, "AMD": 5, "PLTR": 3, "ARM": 2}}
+{"date": "2025-10-29", "id": 12, "this_action": {"action": "sell", "symbol": "ARM", "amount": 1}, "positions": {"CASH": 637.0798000000004, "AAPL": 10, "GOOGL": 10, "NVDA": 12, "AMD": 5, "PLTR": 3, "ARM": 1}}
+{"date": "2025-10-29", "id": 13, "this_action": {"action": "buy", "symbol": "QCOM", "amount": 3}, "positions": {"CASH": 90.44980000000044, "AAPL": 10, "GOOGL": 10, "NVDA": 12, "AMD": 5, "PLTR": 3, "ARM": 1, "QCOM": 3}}
+{"date": "2025-10-29", "id": 14, "this_action": {"action": "buy", "symbol": "INTC", "amount": 2}, "positions": {"CASH": 7.339800000000437, "AAPL": 10, "GOOGL": 10, "NVDA": 12, "AMD": 5, "PLTR": 3, "ARM": 1, "QCOM": 3, "INTC": 2}}
+{"date": "2025-10-30", "id": 15, "this_action": {"action": "sell", "symbol": "INTC", "amount": 2}, "positions": {"CASH": 89.41980000000044, "AAPL": 10, "GOOGL": 10, "NVDA": 12, "AMD": 5, "PLTR": 3, "ARM": 1, "QCOM": 3, "INTC": 0}}
+{"date": "2025-10-30", "id": 16, "this_action": {"action": "sell", "symbol": "PLTR", "amount": 1}, "positions": {"CASH": 288.3498000000004, "AAPL": 10, "GOOGL": 10, "NVDA": 12, "AMD": 5, "PLTR": 2, "ARM": 1, "QCOM": 3, "INTC": 0}}
+{"date": "2025-10-30", "id": 17, "this_action": {"action": "buy", "symbol": "NVDA", "amount": 1}, "positions": {"CASH": 84.3898000000004, "AAPL": 10, "GOOGL": 10, "NVDA": 13, "AMD": 5, "PLTR": 2, "ARM": 1, "QCOM": 3, "INTC": 0}}
+{"date": "2025-10-30", "id": 18, "this_action": {"action": "sell", "symbol": "PLTR", "amount": 1}, "positions": {"CASH": 283.31980000000044, "AAPL": 10, "GOOGL": 10, "NVDA": 13, "AMD": 5, "PLTR": 1, "ARM": 1, "QCOM": 3, "INTC": 0}}
+{"date": "2025-10-30", "id": 19, "this_action": {"action": "buy", "symbol": "AMD", "amount": 1}, "positions": {"CASH": 20.75980000000044, "AAPL": 10, "GOOGL": 10, "NVDA": 13, "AMD": 6, "PLTR": 1, "ARM": 1, "QCOM": 3, "INTC": 0}}

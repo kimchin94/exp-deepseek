@@ -24,13 +24,13 @@ all_nasdaq_100_symbols = [
     "NXPI", "DDOG", "AXON", "ROST", "IDXX", "EA", "PCAR", "FAST", "EXC", "TTWO",
     "XEL", "ZS", "PAYX", "WBD", "BKR", "CPRT", "CCEP", "FANG", "TEAM", "CHTR",
     "KDP", "MCHP", "GEHC", "VRSK", "CTSH", "CSGP", "KHC", "ODFL", "DXCM", "TTD",
-    "ON", "BIIB", "LULU", "CDW", "GFS"
+    "ON", "BIIB", "LULU", "CDW", "TSM"
 ]
 
 STOP_SIGNAL = "<FINISH_SIGNAL>"
 
 agent_system_prompt = """
-You are a stock fundamental analysis trading assistant.
+You are a professional stock fundamental analysis trading assistant.
 
 Your goals are:
 - Think and reason by calling available tools.
@@ -61,26 +61,46 @@ The current value represented by the stocks you hold:
 Current buying prices:
 {today_buy_price}
 
-When you think your task is complete, output
-{STOP_SIGNAL}
+**IMPORTANT: You must take at least 2 steps (min_steps=2) before finishing.**
+
+Current step: {current_step}
+
+**STEP 1 - INFORMATION GATHERING & FIRST TRADING:**
+- Call get_information tool to research market news, trends, and company fundamentals
+  Example: get_information("NVDA stock analysis and market outlook")
+  Example: get_information("semiconductor industry trends and AI chip demand")
+- Call get_price_local tool to gather at least 10-20 stock prices (must include: NVDA, TSM, AMD)
+- Analyze market conditions, news, and current positions
+- Make informed trading decisions based on research, price data, and market analysis
+- Based on gathered data, decide whether to buy, sell, or hold positions, execute any trades needed (buy_stock, sell_stock)
+- DO NOT finish yet - you must proceed to Step 2
+
+**STEP 2 - REVIEW & SECOND TRADING:**
+- Review the results of your previous decisions and the latest market changes
+- Based on gathered data, decide whether to buy, sell, or hold positions
+- Execute any trades needed (buy_stock, sell_stock) or hold positions
+- Provide summary of your trading decisions
+
+ONLY output {STOP_SIGNAL} when you've completed both steps above.
 """
 
-def get_agent_system_prompt(today_date: str, signature: str) -> str:
+def get_agent_system_prompt(today_date: str, signature: str, current_step: int = 1) -> str:
     print(f"signature: {signature}")
     print(f"today_date: {today_date}")
     # Get yesterday's buy and sell prices
     yesterday_buy_prices, yesterday_sell_prices = get_yesterday_open_and_close_price(today_date, all_nasdaq_100_symbols)
     today_buy_price = get_open_prices(today_date, all_nasdaq_100_symbols)
     today_init_position = get_today_init_position(today_date, signature)
-    # yesterday_profit = get_yesterday_profit(today_date, yesterday_buy_prices, yesterday_sell_prices, today_init_position)
+    yesterday_profit = get_yesterday_profit(today_date, yesterday_buy_prices, yesterday_sell_prices, today_init_position)
     
     return agent_system_prompt.format(
         date=today_date, 
         positions=today_init_position, 
         STOP_SIGNAL=STOP_SIGNAL,
+        current_step=current_step,
         yesterday_close_price=yesterday_sell_prices,
         today_buy_price=today_buy_price,
-        # yesterday_profit=yesterday_profit
+        yesterday_profit=yesterday_profit
     )
 
 

@@ -1,10 +1,19 @@
 import os
+import sys
 import asyncio
 from datetime import datetime, timedelta
 import json
 from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
+
+# Fix Windows console UTF-8 encoding
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except:
+        pass
 
 # Import tools and prompts
 from tools.general_tools import get_config_value, write_config_value
@@ -124,6 +133,14 @@ async def main(config_path=None):
         END_DATE = os.getenv("END_DATE")
         print(f"⚠️  Using environment variable to override END_DATE: {END_DATE}")
     
+    # Convert date-only format to include opening hour (10:00:00) for intraday data
+    if ' ' not in INIT_DATE:
+        INIT_DATE = f"{INIT_DATE} 10:00:00"
+        print(f"📅 Converted INIT_DATE to opening hour: {INIT_DATE}")
+    if ' ' not in END_DATE:
+        END_DATE = f"{END_DATE} 10:00:00"
+        print(f"📅 Converted END_DATE to opening hour: {END_DATE}")
+    
     # Validate date range
     # Support both YYYY-MM-DD and YYYY-MM-DD HH:MM:SS formats
     if ' ' in INIT_DATE:
@@ -149,6 +166,7 @@ async def main(config_path=None):
     # Get agent configuration
     agent_config = config.get("agent_config", {})
     log_config = config.get("log_config", {})
+    min_steps = agent_config.get("min_steps", 2)
     max_steps = agent_config.get("max_steps", 10)
     max_retries = agent_config.get("max_retries", 3)
     base_delay = agent_config.get("base_delay", 0.5)
@@ -161,7 +179,7 @@ async def main(config_path=None):
     print(f"🤖 Agent type: {agent_type}")
     print(f"📅 Date range: {INIT_DATE} to {END_DATE}")
     print(f"🤖 Model list: {model_names}")
-    print(f"⚙️  Agent config: max_steps={max_steps}, max_retries={max_retries}, base_delay={base_delay}, initial_cash={initial_cash}")
+    print(f"⚙️  Agent config: min_steps={min_steps}, max_steps={max_steps}, max_retries={max_retries}, base_delay={base_delay}, initial_cash={initial_cash}")
                     
     for model_config in enabled_models:
         # Read basemodel and signature directly from configuration file
@@ -191,9 +209,12 @@ async def main(config_path=None):
         project_root = _Path(__file__).resolve().parent
         runtime_env_dir = project_root / "data" / "agent_data" / signature
         runtime_env_dir.mkdir(parents=True, exist_ok=True)
-        runtime_env_path = runtime_env_dir / ".runtime_env.json"
-        os.environ["RUNTIME_ENV_PATH"] = str(runtime_env_path)
-        os.environ["SIGNATURE"] = signature
+        # Respect existing RUNTIME_ENV_PATH from .env; only set default if missing
+        if not os.environ.get("RUNTIME_ENV_PATH"):
+            runtime_env_path = runtime_env_dir / ".runtime_env.json"
+            os.environ["RUNTIME_ENV_PATH"] = str(runtime_env_path)
+        # Always persist current run values to the runtime file that tools read
+        write_config_value("SIGNATURE", signature)
         write_config_value("TODAY_DATE", END_DATE)
         write_config_value("IF_TRADE", False)
 
@@ -208,6 +229,7 @@ async def main(config_path=None):
                 basemodel=basemodel,
                 stock_symbols=all_nasdaq_100_symbols,
                 log_path=log_path,
+                min_steps=min_steps,
                 max_steps=max_steps,
                 max_retries=max_retries,
                 base_delay=base_delay,
@@ -232,6 +254,60 @@ async def main(config_path=None):
             print(f"   - Total records: {summary.get('total_records')}")
             print(f"   - Cash balance: ${summary.get('positions', {}).get('CASH', 0):.2f}")
             
+            # Calculate and display deterministic portfolio value
+            print("\n" + "=" * 60)
+            print("📈 DETERMINISTIC PORTFOLIO VALUATION")
+            print("=" * 60)
+            try:
+                from tools.valuation import calculate_portfolio_value
+                from tools.price_tools import get_open_prices
+                
+                latest_date = summary.get('latest_date')
+                positions = summary.get('positions', {})
+                
+                if latest_date and positions:
+                    # Calculate portfolio value
+                    total_value, details = calculate_portfolio_value(latest_date, positions)
+                    
+                    print(f"📅 Date: {latest_date}")
+                    print(f"💰 Total Portfolio Value: ${total_value:,.2f}")
+                    print(f"\n📋 Holdings Breakdown:")
+                    
+                    # Sort: CASH first, then alphabetically
+                    sorted_symbols = sorted([s for s in details.keys() if s != 'CASH'])
+                    if 'CASH' in details:
+                        sorted_symbols = ['CASH'] + sorted_symbols
+                    
+                    for symbol in sorted_symbols:
+                        info = details[symbol]
+                        if symbol == 'CASH':
+                            print(f"   💵 CASH: ${info['value']:,.2f}")
+                        elif info.get('price') is not None:
+                            print(f"   📊 {symbol:6s}: {info['shares']:>6.0f} shares × ${info['price']:>8.2f} = ${info['value']:>10,.2f}")
+                        else:
+                            print(f"   📊 {symbol:6s}: {info['shares']:>6.0f} shares × [NO PRICE DATA]")
+                    
+                    # Calculate P&L if we have initial cash
+                    pnl = total_value - initial_cash
+                    pnl_pct = (pnl / initial_cash) * 100
+                    
+                    print(f"\n📊 Performance:")
+                    print(f"   Initial Investment: ${initial_cash:,.2f}")
+                    print(f"   Current Value:      ${total_value:,.2f}")
+                    if pnl >= 0:
+                        print(f"   Profit/Loss:        +${pnl:,.2f} (+{pnl_pct:.2f}%) 📈")
+                    else:
+                        print(f"   Profit/Loss:        -${abs(pnl):,.2f} ({pnl_pct:.2f}%) 📉")
+                else:
+                    print("⚠️  No position data available for valuation")
+                    
+            except Exception as e:
+                print(f"❌ Error calculating portfolio value: {e}")
+                import traceback
+                traceback.print_exc()
+            
+            print("=" * 60)
+            
         except Exception as e:
             print(f"❌ Error processing model {model_name} ({signature}): {str(e)}")
             print(f"📋 Error details: {e}")
@@ -254,9 +330,9 @@ if __name__ == "__main__":
     config_path = sys.argv[1] if len(sys.argv) > 1 else None
     
     if config_path:
-        print(f"📄 Using specified configuration file: {config_path}")
+        print(f"Using specified configuration file: {config_path}")
     else:
-        print(f"📄 Using default configuration file: configs/default_config.json")
+        print(f"Using default configuration file: configs/default_config.json")
     
     asyncio.run(main(config_path))
 

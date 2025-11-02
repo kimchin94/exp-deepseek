@@ -14,9 +14,10 @@ else:
 # Add project root directory to Python path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
-from tools.price_tools import get_yesterday_date, get_open_prices, get_yesterday_open_and_close_price, get_latest_position, get_yesterday_profit
+from tools.price_tools import get_yesterday_date, get_open_prices, get_yesterday_open_and_close_price, get_latest_position, get_yesterday_profit, get_today_init_position
 import json
 from tools.general_tools import get_config_value,write_config_value
+from tools.valuation import calculate_portfolio_value, format_portfolio_summary
 mcp = FastMCP("TradeTools")
 
 
@@ -87,6 +88,21 @@ def buy(symbol: str, amount: int) -> Dict[str, Any]:
     
     # Get current trading date from environment variable
     today_date = get_config_value("TODAY_DATE")
+
+    # # Step-gating: Disallow trading in Step 1 (and any step < 2)
+    # raw_step = get_config_value("CURRENT_STEP")
+    # if raw_step is not None:
+    #     try:
+    #         step_num = int(raw_step)
+    #     except Exception:
+    #         step_num = 0
+    #     if step_num < 2:
+    #         return {
+    #             "error": "Trading not allowed in Step 1. Execute research only.",
+    #             "symbol": symbol,
+    #             "date": today_date,
+    #             "step": step_num
+    #         }
     
     # Step 2: Get current latest position and operation ID
     # get_latest_position returns two values: position dictionary and current maximum operation ID
@@ -113,7 +129,11 @@ def buy(symbol: str, amount: int) -> Dict[str, Any]:
     try:
         cash_left = current_position["CASH"] - this_symbol_price * amount
     except Exception as e:
-        print(current_position, "CASH", this_symbol_price, amount)
+        return {
+            "error": f"Failed to compute cash after trade: {e}",
+            "symbol": symbol,
+            "date": today_date
+        }
 
     # Check if cash balance is sufficient for purchase
     if cash_left < 0:
@@ -127,8 +147,8 @@ def buy(symbol: str, amount: int) -> Dict[str, Any]:
         # Decrease cash balance
         new_position["CASH"] = cash_left
         
-        # Increase stock position quantity
-        new_position[symbol] += amount
+        # Increase stock position quantity (handle first-time buy)
+        new_position[symbol] = new_position.get(symbol, 0) + amount
         
         # Step 6: Record transaction to position.jsonl file
         # Build file path: {project_root}/data/agent_data/{signature}/position/position.jsonl
@@ -182,6 +202,35 @@ def sell(symbol: str, amount: int) -> Dict[str, Any]:
     
     # Get current trading date from environment variable
     today_date = get_config_value("TODAY_DATE")
+
+    # NOTE: Step-gating temporarily disabled to allow Step 1 trading as requested
+    raw_step = get_config_value("CURRENT_STEP")
+    if raw_step is not None:
+        try:
+            step_num = int(raw_step)
+        except Exception:
+            step_num = 0
+        if step_num < 2:
+            return {
+                "error": "Trading not allowed in Step 1. Execute research only.",
+                "symbol": symbol,
+                "date": today_date,
+                "step": step_num
+            }
+    # NOTE: Step-gating temporarily disabled to allow Step 1 trading as requested
+    raw_step = get_config_value("CURRENT_STEP")
+    if raw_step is not None:
+        try:
+            step_num = int(raw_step)
+        except Exception:
+            step_num = 0
+        if step_num < 2:
+            return {
+                "error": "Trading not allowed in Step 1. Execute research only.",
+                "symbol": symbol,
+                "date": today_date,
+                "step": step_num
+            }
     
     # Step 2: Get current latest position and operation ID under lock
     # get_latest_position returns two values: position dictionary and current maximum operation ID
@@ -233,6 +282,107 @@ def sell(symbol: str, amount: int) -> Dict[str, Any]:
     # Step 7: Return updated position
     write_config_value("IF_TRADE", True)
     return new_position
+
+
+@mcp.tool()
+def get_portfolio_value(date: str = None) -> Dict[str, Any]:
+    """
+    Get deterministic portfolio valuation for current or specified date.
+    
+    This tool calculates the EXACT portfolio value using actual positions and market prices.
+    DO NOT manually calculate portfolio totals - use this tool instead!
+    
+    This function returns:
+    - total_value: Exact total portfolio value in dollars
+    - holdings: Detailed breakdown of each position (shares, price, value)
+    - summary: Human-readable summary text
+    
+    Args:
+        date: Optional date in YYYY-MM-DD format. If not provided, uses current trading date.
+        
+    Returns:
+        Dictionary with total_value, holdings breakdown, and formatted summary.
+        
+    Example:
+        result = get_portfolio_value("2025-10-30")
+        print(f"Total: ${result['total_value']:,.2f}")
+    """
+    try:
+        # Get current date if not provided
+        if date is None:
+            date = get_config_value("TODAY_DATE")
+            if date is None:
+                return {
+                    "error": "No date provided and TODAY_DATE not set",
+                    "total_value": None,
+                    "holdings": {},
+                    "summary": "Error: Date not available"
+                }
+        
+        # Get signature for position lookup
+        signature = get_config_value("SIGNATURE")
+        if signature is None:
+            return {
+                "error": "SIGNATURE not set in config",
+                "total_value": None,
+                "holdings": {},
+                "summary": "Error: Signature not available"
+            }
+        
+        # Extract date part if timestamp
+        valuation_date = date.split()[0] if ' ' in date else date
+        
+        # Get current positions
+        positions = get_today_init_position(date, signature)
+        
+        if not positions or not isinstance(positions, dict):
+            return {
+                "error": "No positions found",
+                "total_value": None,
+                "holdings": {},
+                "summary": "Error: Positions not available"
+            }
+        
+        # Get yesterday's date for current prices
+        yesterday_date = get_yesterday_date(date)
+        if ' ' in yesterday_date:
+            yesterday_date = yesterday_date.split()[0]
+        
+        # Calculate portfolio value
+        total_value, details = calculate_portfolio_value(yesterday_date, positions)
+        
+        # Format summary
+        summary = format_portfolio_summary(
+            yesterday_date,
+            total_value,
+            details,
+            initial_value=10000.0  # Assuming $10k initial
+        )
+        
+        # Build response
+        return {
+            "total_value": round(total_value, 2),
+            "date": yesterday_date,
+            "holdings": {
+                symbol: {
+                    "shares": info.get("shares"),
+                    "price": info.get("price"),
+                    "value": round(info.get("value", 0), 2) if info.get("value") is not None else None
+                }
+                for symbol, info in details.items()
+            },
+            "summary": summary,
+            "message": f"✓ Portfolio total: ${total_value:,.2f} (calculated from positions × prices)"
+        }
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "total_value": None,
+            "holdings": {},
+            "summary": f"Error calculating portfolio value: {str(e)}"
+        }
+
 
 if __name__ == "__main__":
     # new_result = buy("AAPL", 1)

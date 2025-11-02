@@ -1,0 +1,6 @@
+{"date": "2025-10-23 09:00:00", "id": 0, "this_action": {"action": "init", "symbol": "", "amount": 0}, "positions": {"CASH": 10000.0}}
+{"date": "2025-10-24", "id": 1, "this_action": {"action": "buy", "symbol": "GOOGL", "amount": 10}, "positions": {"CASH": 7399.700000000001, "GOOGL": 10}}
+{"date": "2025-10-24", "id": 2, "this_action": {"action": "buy", "symbol": "MSFT", "amount": 5}, "positions": {"CASH": 4784.6, "GOOGL": 10, "MSFT": 5}}
+{"date": "2025-10-24", "id": 3, "this_action": {"action": "buy", "symbol": "NVDA", "amount": 10}, "positions": {"CASH": 2929.0000000000005, "GOOGL": 10, "MSFT": 5, "NVDA": 10}}
+{"date": "2025-10-24", "id": 4, "this_action": {"action": "buy", "symbol": "AAPL", "amount": 10}, "positions": {"CASH": 327.00000000000045, "GOOGL": 10, "MSFT": 5, "NVDA": 10, "AAPL": 10}}
+{"date": "2025-10-24", "id": 5, "this_action": {"action": "buy", "symbol": "QCOM", "amount": 1}, "positions": {"CASH": 156.26000000000045, "GOOGL": 10, "MSFT": 5, "NVDA": 10, "AAPL": 10, "QCOM": 1}}

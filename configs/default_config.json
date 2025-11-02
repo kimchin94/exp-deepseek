@@ -1,8 +1,8 @@
 {
   "agent_type": "BaseAgent",
   "date_range": {
-    "init_date": "2025-10-20",
-    "end_date": "2025-10-30"
+    "init_date": "2025-10-23",
+    "end_date": "2025-10-28"
   },
   "models": [
     {
@@ -15,7 +15,7 @@
     },
     {
       "name": "deepseek-chat-v3.1",
-      "basemodel": "deepseek/deepseek-chat-v3.1",
+      "basemodel": "deepseek-chat",
       "signature": "deepseek-chat-v3.1",
       "enabled": true
     },
@@ -39,10 +39,16 @@
     }
   ],
   "agent_config": {
+    "min_steps": 2,
     "max_steps": 30,
     "max_retries": 3,
     "base_delay": 1.0,
-    "initial_cash": 10000.0
+    "initial_cash": 10000.0,
+    "risk_config": {
+      "max_single_name_weight": 0.25,
+      "max_daily_turnover": 0.40,
+      "min_cash_floor": 100.0
+    }
   },
   "log_config": {
     "log_path": "./data/agent_data"

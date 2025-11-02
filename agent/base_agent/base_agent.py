@@ -62,6 +62,7 @@ class BaseAgent:
         stock_symbols: Optional[List[str]] = None,
         mcp_config: Optional[Dict[str, Dict[str, Any]]] = None,
         log_path: Optional[str] = None,
+        min_steps: int = 2,
         max_steps: int = 10,
         max_retries: int = 3,
         base_delay: float = 0.5,
@@ -79,6 +80,7 @@ class BaseAgent:
             stock_symbols: List of stock symbols, defaults to NASDAQ 100
             mcp_config: MCP tool configuration, including port and URL information
             log_path: Log path, defaults to ./data/agent_data
+            min_steps: Minimum steps before allowing STOP_SIGNAL
             max_steps: Maximum reasoning steps
             max_retries: Maximum retry attempts
             base_delay: Base delay time for retries
@@ -90,6 +92,7 @@ class BaseAgent:
         self.signature = signature
         self.basemodel = basemodel
         self.stock_symbols = stock_symbols or self.DEFAULT_STOCK_SYMBOLS
+        self.min_steps = min_steps
         self.max_steps = max_steps
         self.max_retries = max_retries
         self.base_delay = base_delay
@@ -122,6 +125,23 @@ class BaseAgent:
         self.data_path = os.path.join(self.base_log_path, self.signature)
         self.position_file = os.path.join(self.data_path, "position", "position.jsonl")
         
+    def _tools_for_step(self, step: int) -> List[Any]:
+        """Return the tool list appropriate for the given step.
+        Step 1: research-only (exclude trading tools like buy/sell)
+        Step 2+: full toolset
+        """
+        if not self.tools:
+            return []
+        if step >= 2:
+            return self.tools
+        filtered = []
+        for tool in self.tools:
+            name = getattr(tool, "name", None)
+            if name in ("buy", "sell"):
+                continue
+            filtered.append(tool)
+        return filtered
+
     def _get_default_mcp_config(self) -> Dict[str, Dict[str, Any]]:
         """Get default MCP configuration"""
         return {
@@ -178,7 +198,7 @@ class BaseAgent:
                 base_url=self.openai_base_url,
                 api_key=self.openai_api_key,
                 max_retries=3,
-                timeout=30
+                timeout=90
             )
         except Exception as e:
             raise RuntimeError(f"❌ Failed to initialize AI model: {e}")
@@ -197,10 +217,21 @@ class BaseAgent:
     
     def _log_message(self, log_file: str, new_messages: List[Dict[str, str]]) -> None:
         """Log messages to log file"""
+        # Allow passing a single dict or a list of dicts
+        if isinstance(new_messages, dict):
+            payload = [new_messages]
+        else:
+            payload = new_messages
+        # Read current step from runtime config for traceability
+        try:
+            current_step_for_log = get_config_value("CURRENT_STEP")
+        except Exception:
+            current_step_for_log = None
         log_entry = {
             # "timestamp": datetime.now().isoformat(),
             "signature": self.signature,
-            "new_messages": new_messages
+            "current_step": current_step_for_log,
+            "new_messages": payload
         }
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
@@ -235,8 +266,8 @@ class BaseAgent:
         # Update system prompt
         self.agent = create_agent(
             self.model,
-            tools=self.tools,
-            system_prompt=get_agent_system_prompt(today_date, self.signature),
+            tools=self._tools_for_step(1),
+            system_prompt=get_agent_system_prompt(today_date, self.signature, current_step=1),
         )
         
         # Initial user query
@@ -248,27 +279,133 @@ class BaseAgent:
         
         # Trading loop
         current_step = 0
+        step1_tools_called = []  # Track tools called in step 1
+        
         while current_step < self.max_steps:
             current_step += 1
             print(f"🔄 Step {current_step}/{self.max_steps}")
             
             try:
+                # Persist current step for tool-layer gating (e.g., block buy/sell in Step 1)
+                write_config_value("CURRENT_STEP", current_step)
+                # Log the current step explicitly for auditing
+                self._log_message(log_file, {"role": "system", "content": f"CURRENT_STEP={current_step}"})
+                # Refresh system prompt so "Current step" reflects the latest step in the LLM context
+                self.agent = create_agent(
+                    self.model,
+                    tools=self.tools,
+                    system_prompt=get_agent_system_prompt(today_date, self.signature, current_step=current_step),
+                )
                 # Call agent
                 response = await self._ainvoke_with_retry(message)
                 
                 # Extract agent response
                 agent_response = extract_conversation(response, "final")
                 
+                # Extract tool calls for validation
+                tool_msgs = extract_tool_messages(response)
+                tools_called_this_step = []
+                
+                # Check what tools were called
+                for msg in tool_msgs:
+                    name = msg.get("name") if isinstance(msg, dict) else getattr(msg, "name", None)
+                    if isinstance(name, str):
+                        tools_called_this_step.append(name)
+                
+                # GUARD 2: Validate buy/sell only in step 2+
+                if current_step == 1:
+                    trading_tools = [t for t in tools_called_this_step if t in ['buy', 'sell']]
+                    if trading_tools:
+                        print(f"⚠️ Step 1 trading tools detected: {trading_tools} (allowed for now)")
+                    
+                    # Track step 1 tools for guard 1
+                    step1_tools_called.extend(tools_called_this_step)
+                
+                # GUARD 1: In step 1, check if agent is trying to finish without calling research tools
+                if current_step == 1 and ((agent_response and STOP_SIGNAL in agent_response) or not tool_msgs):
+                    research_tools = ['get_information', 'get_price_local']
+                    research_tools_used = [t for t in step1_tools_called if t in research_tools]
+                    
+                    if not research_tools_used:
+                        print(f"🚫 GUARD: Step 1 attempting to finish without calling research tools!")
+                        print(f"   Tools called: {step1_tools_called if step1_tools_called else 'NONE'}")
+                        print(f"   Required: at least one of {research_tools}")
+                        
+                        # Force agent to use tools before proceeding
+                        agent_response_cleaned = (agent_response or "").replace(STOP_SIGNAL, "")
+                        
+                        # Log tool results (or lack thereof) before forcing retry
+                        if tool_msgs:
+                            safe_contents = []
+                            for m in tool_msgs:
+                                c = (m.get("content") if isinstance(m, dict) else getattr(m, "content", None))
+                                if isinstance(c, str) and c:
+                                    safe_contents.append(c)
+                            tool_response = '\n'.join(safe_contents)
+                        else:
+                            tool_response = "No tools called"
+                        self._log_message(log_file, [{"role": "assistant", "content": agent_response_cleaned}])
+                        if tool_msgs:
+                            self._log_message(log_file, [{"role": "user", "content": f'Tool results: {tool_response}'}])
+                        
+                        error_msg = ("❌ ERROR: You did NOT call any research tools in Step 1!\n\n"
+                            "MANDATORY: You MUST call at least one of these tools:\n"
+                            "1. get_information(query) - to research market news/trends\n"
+                            "   Example: get_information('NVDA earnings and AI chip demand trends')\n"
+                            "2. get_price_local(symbol, date) - to get stock prices\n"
+                            "   Example: get_price_local('NVDA', '2025-10-24')\n\n"
+                            "Call these tools NOW before proceeding to Step 2.")
+                        
+                        message.append({"role": "assistant", "content": agent_response_cleaned})
+                        if tool_msgs:
+                            message.append({"role": "user", "content": f'Tool results: {tool_response}'})
+                        message.append({"role": "user", "content": error_msg})
+                        self._log_message(log_file, [{"role": "user", "content": error_msg}])
+                        continue
+                    else:
+                        print(f"✅ GUARD: Step 1 research tools validated: {research_tools_used}")
+                
                 # Check stop signal
-                if STOP_SIGNAL in agent_response:
-                    print("✅ Received stop signal, trading session ended")
-                    print(agent_response)
-                    self._log_message(log_file, [{"role": "assistant", "content": agent_response}])
-                    break
+                if agent_response and STOP_SIGNAL in agent_response:
+                    if current_step >= self.min_steps:
+                        print("✅ Received stop signal, trading session ended")
+                        print(agent_response)
+                        self._log_message(log_file, [{"role": "assistant", "content": agent_response}])
+                        break
+                    else:
+                        print(f"⚠️  Stop signal received at step {current_step}, but min_steps={self.min_steps} not reached. Continuing...")
+                        # Remove the STOP_SIGNAL from response and continue
+                        agent_response_cleaned = (agent_response or "").replace(STOP_SIGNAL, "")
+                        
+                        # Log tool results before forcing continuation
+                        if tool_msgs:
+                            safe_contents = []
+                            for m in tool_msgs:
+                                c = (m.get("content") if isinstance(m, dict) else getattr(m, "content", None))
+                                if isinstance(c, str) and c:
+                                    safe_contents.append(c)
+                            tool_response = '\n'.join(safe_contents)
+                        else:
+                            tool_response = "No tools called"
+                        self._log_message(log_file, [{"role": "assistant", "content": agent_response_cleaned}])
+                        if tool_msgs:
+                            self._log_message(log_file, [{"role": "user", "content": f'Tool results: {tool_response}'}])
+                        
+                        continue_msg = f"Please continue your analysis. You must complete at least {self.min_steps} steps. Current step: {current_step}/{self.min_steps}"
+                        message.append({"role": "assistant", "content": agent_response_cleaned})
+                        if tool_msgs:
+                            message.append({"role": "user", "content": f'Tool results: {tool_response}'})
+                        message.append({"role": "user", "content": continue_msg})
+                        self._log_message(log_file, [{"role": "user", "content": continue_msg}])
+                        continue
                 
                 # Extract tool messages
-                tool_msgs = extract_tool_messages(response)
-                tool_response = '\n'.join([msg.content for msg in tool_msgs])
+                safe_contents = []
+                for m in tool_msgs:
+                    c = (m.get("content") if isinstance(m, dict) else getattr(m, "content", None))
+                    if isinstance(c, str) and c:
+                        safe_contents.append(c)
+                tool_response = '\n'.join(safe_contents)
                 
                 # Prepare new messages
                 new_messages = [

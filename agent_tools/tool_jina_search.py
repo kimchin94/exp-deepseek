@@ -121,7 +121,7 @@ class WebScrapingJinaTool:
             jina_url = f'https://r.jina.ai/{url}'
             headers = {
                 "Accept": "application/json",
-                'Authorization': self.api_key,
+                'Authorization': f'Bearer {self.api_key}',  # FIX: Added "Bearer "
                 'X-Timeout': "10",
                 "X-With-Generated-Alt": "true",
             }
@@ -149,11 +149,11 @@ class WebScrapingJinaTool:
             }
 
     def _jina_search(self, query: str) -> List[str]:
-        url = f'https://s.jina.ai/?q={query}&n=1'
+        url = f'https://s.jina.ai/{query}'  # FIX: Simplified URL format
         headers = {
             'Authorization': f'Bearer {self.api_key}',        
             "Accept": "application/json",
-            "X-Respond-With": "no-content"
+            "X-With-Generated-Alt": "true"  # FIX: Removed "no-content", added alt text
         }
    
         try:

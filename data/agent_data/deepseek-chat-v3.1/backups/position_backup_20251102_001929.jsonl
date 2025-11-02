@@ -1,0 +1,6 @@
+{"date": "2025-10-23 09:00:00", "id": 0, "this_action": {"action": "init", "symbol": "", "amount": 0}, "positions": {"CASH": 10000.0}}
+{"date": "2025-10-24", "id": 1, "this_action": {"action": "buy", "symbol": "NVDA", "amount": 10}, "positions": {"CASH": 8144.4, "NVDA": 10}}
+{"date": "2025-10-24", "id": 2, "this_action": {"action": "buy", "symbol": "AMD", "amount": 5}, "positions": {"CASH": 6892.599999999999, "NVDA": 10, "AMD": 5}}
+{"date": "2025-10-24", "id": 3, "this_action": {"action": "buy", "symbol": "MSFT", "amount": 5}, "positions": {"CASH": 4277.5, "NVDA": 10, "AMD": 5, "MSFT": 5}}
+{"date": "2025-10-24", "id": 4, "this_action": {"action": "buy", "symbol": "AVGO", "amount": 3}, "positions": {"CASH": 3216.01, "NVDA": 10, "AMD": 5, "MSFT": 5, "AVGO": 3}}
+{"date": "2025-10-24", "id": 5, "this_action": {"action": "buy", "symbol": "ARM", "amount": 5}, "positions": {"CASH": 2359.46, "NVDA": 10, "AMD": 5, "MSFT": 5, "AVGO": 3, "ARM": 5}}
