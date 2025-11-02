@@ -181,6 +181,16 @@ async def main(config_path=None):
     print(f"🤖 Model list: {model_names}")
     print(f"⚙️  Agent config: min_steps={min_steps}, max_steps={max_steps}, max_retries={max_retries}, base_delay={base_delay}, initial_cash={initial_cash}")
                     
+    # Optional watchdog: stop after MAX_RUNTIME_MINUTES
+    max_runtime_min = os.getenv("MAX_RUNTIME_MINUTES")
+    deadline = None
+    if max_runtime_min:
+        try:
+            deadline = datetime.now() + timedelta(minutes=float(max_runtime_min))
+            print(f"⏱️  Watchdog enabled: will stop after {max_runtime_min} minutes")
+        except Exception:
+            deadline = None
+
     for model_config in enabled_models:
         # Read basemodel and signature directly from configuration file
         model_name = model_config.get("name", "unknown")
@@ -244,8 +254,18 @@ async def main(config_path=None):
             # Initialize MCP connection and AI model
             await agent.initialize()
             print("✅ Initialization successful")
-            # Run all trading days in date range
-            await agent.run_date_range(INIT_DATE, END_DATE)
+            # Run all trading days in date range, with optional timeout
+            if deadline is None:
+                await agent.run_date_range(INIT_DATE, END_DATE)
+            else:
+                remaining = (deadline - datetime.now()).total_seconds()
+                if remaining <= 0:
+                    print("⏱️  Watchdog timeout reached before run; skipping")
+                else:
+                    try:
+                        await asyncio.wait_for(agent.run_date_range(INIT_DATE, END_DATE), timeout=remaining)
+                    except asyncio.TimeoutError:
+                        print("⏱️  Watchdog timeout reached during run; stopping early")
             
             # Display final position summary
             summary = agent.get_position_summary()
@@ -320,6 +340,14 @@ async def main(config_path=None):
         print("=" * 60)
     
     print("🎉 All models processing completed!")
+    # If watchdog set, attempt to stop MCP services using PID file
+    if max_runtime_min:
+        try:
+            import subprocess
+            subprocess.run([sys.executable, str(Path(__file__).parent / 'agent_tools' / 'start_mcp_services.py'), 'stop'], check=False)
+            print("🛑 Requested MCP services stop (from PID file)")
+        except Exception as e:
+            print(f"⚠️  Failed to stop MCP services automatically: {e}")
     
 if __name__ == "__main__":
     import sys

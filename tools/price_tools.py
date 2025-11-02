@@ -126,28 +126,88 @@ def get_yesterday_date(today_date: str, merged_path: Optional[str] = None) -> st
 
 
 def get_open_prices(today_date: str, symbols: List[str], merged_path: Optional[str] = None) -> Dict[str, Optional[float]]:
-    """从 data/merged.jsonl 中读取指定日期与标的的开盘价。
+    """获取指定日期与标的的价格。
 
-    Args:
-        today_date: 日期字符串，格式 YYYY-MM-DD或YYYY-MM-DD HH:MM:SS。
-        symbols: 需要查询的股票代码列表。
-        merged_path: 可选，自定义 merged.jsonl 路径；默认读取项目根目录下 data/merged.jsonl。
-
-    Returns:
-        {symbol_price: open_price 或 None} 的字典；若未找到对应日期或标的，则值为 None。
+    当 PRICE_SOURCE 为 'IBKR' 时，优先使用 IBKR 实时价格（last/中间价）。
+    否则读取 data/merged.jsonl（AlphaVantage 合并文件）。
+    
+    Returns: {symbol_price: price or None}
     """
-    wanted = set(symbols)
+    source = (get_config_value("PRICE_SOURCE") or os.getenv("PRICE_SOURCE") or "LOCAL").upper()
     results: Dict[str, Optional[float]] = {}
 
+    if source == "IBKR":
+        try:
+            # Lazy import to avoid dependency when not needed
+            from ib_insync import IB, Stock
+            ib = IB()
+            host = os.getenv("IB_HOST", "127.0.0.1")
+            port = int(os.getenv("IB_PORT", "7497"))
+            client_id = int(os.getenv("IB_CLIENT_ID", "123"))
+            if not ib.isConnected():
+                ib.connect(host, port, clientId=client_id, timeout=5)
+                ib.sleep(0.3)  # Allow connection to stabilize
+            # Use delayed market data if no live subscription
+            try:
+                ib.reqMarketDataType(3)
+                ib.sleep(0.2)  # Allow market data type change to register
+            except Exception:
+                pass
+            for sym in symbols:
+                try:
+                    contract = Stock(sym, "SMART", "USD")
+                    ib.qualifyContracts(contract)
+                    t = ib.reqMktData(contract, '', False, False)
+                    ib.sleep(1.5)  # Increased from 0.4 to allow delayed data to arrive
+                    price = None
+                    # Treat NaN as invalid; fall back bid/ask mid, then previous close
+                    try:
+                        is_last_valid = (t.last is not None) and not (isinstance(t.last, float) and t.last != t.last)
+                    except Exception:
+                        is_last_valid = False
+                    try:
+                        is_bid_valid = (t.bid is not None) and not (isinstance(t.bid, float) and t.bid != t.bid)
+                    except Exception:
+                        is_bid_valid = False
+                    try:
+                        is_ask_valid = (t.ask is not None) and not (isinstance(t.ask, float) and t.ask != t.ask)
+                    except Exception:
+                        is_ask_valid = False
+                    try:
+                        is_close_valid = (t.close is not None) and not (isinstance(t.close, float) and t.close != t.close)
+                    except Exception:
+                        is_close_valid = False
+
+                    if is_last_valid:
+                        price = float(t.last)
+                    elif is_bid_valid and is_ask_valid:
+                        price = float((t.bid + t.ask) / 2)
+                    elif is_close_valid:
+                        price = float(t.close)
+
+                    results[f"{sym}_price"] = price
+                    ib.cancelMktData(contract)
+                except Exception:
+                    results[f"{sym}_price"] = None
+            # Do not keep long-lived connections in utility call
+            try:
+                ib.disconnect()
+            except Exception:
+                pass
+            return results
+        except Exception:
+            # Fallback to local data if IBKR unavailable
+            pass
+
+    # --- LOCAL (AlphaVantage merged.jsonl) path (kept for backtesting) ---
+    wanted = set(symbols)
     if merged_path is None:
         base_dir = Path(__file__).resolve().parents[1]
         merged_file = base_dir / "data" / "merged.jsonl"
     else:
         merged_file = Path(merged_path)
-
     if not merged_file.exists():
         return results
-
     with merged_file.open("r", encoding="utf-8") as f:
         for line in f:
             if not line.strip():
@@ -160,7 +220,6 @@ def get_open_prices(today_date: str, symbols: List[str], merged_path: Optional[s
             sym = meta.get("2. Symbol")
             if sym not in wanted:
                 continue
-            # 查找所有以 "Time Series" 开头的键
             series = None
             for key, value in doc.items():
                 if key.startswith("Time Series"):
@@ -168,26 +227,18 @@ def get_open_prices(today_date: str, symbols: List[str], merged_path: Optional[s
                     break
             if not isinstance(series, dict):
                 continue
-            
-            # Try exact match first (daily format)
             bar = series.get(today_date)
-            
-            # If no exact match and series exists, try hourly format (timestamps starting with date)
             if bar is None and series:
                 matching_entries = {k: v for k, v in series.items() if k.startswith(today_date)}
                 if matching_entries:
-                    # Use earliest timestamp for the date
                     earliest_time = sorted(matching_entries.keys())[0]
                     bar = matching_entries[earliest_time]
-            
             if isinstance(bar, dict):
                 open_val = bar.get("1. buy price")
-                
                 try:
                     results[f'{sym}_price'] = float(open_val) if open_val is not None else None
                 except Exception:
                     results[f'{sym}_price'] = None
-
     return results
 
 def get_yesterday_open_and_close_price(today_date: str, symbols: List[str], merged_path: Optional[str] = None) -> Tuple[Dict[str, Optional[float]], Dict[str, Optional[float]]]:

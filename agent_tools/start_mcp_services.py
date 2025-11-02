@@ -13,6 +13,7 @@ import threading
 from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
+import json
 
 class MCPServiceManager:
     def __init__(self):
@@ -24,7 +25,8 @@ class MCPServiceManager:
             'math': int(os.getenv('MATH_HTTP_PORT', '8000')),
             'search': int(os.getenv('SEARCH_HTTP_PORT', '8001')),
             'trade': int(os.getenv('TRADE_HTTP_PORT', '8002')),
-            'price': int(os.getenv('GETPRICE_HTTP_PORT', '8003'))
+            'price': int(os.getenv('GETPRICE_HTTP_PORT', '8003')),
+            'ibkr': int(os.getenv('IBKR_HTTP_PORT', '8005'))
         }
         
         # Service configurations
@@ -48,12 +50,21 @@ class MCPServiceManager:
                 'script': 'tool_get_price_local.py',
                 'name': 'LocalPrices',
                 'port': self.ports['price']
+            },
+            'ibkr': {
+                'script': 'tool_ibkr.py',
+                'name': 'IBKR',
+                'port': self.ports['ibkr']
             }
         }
         
         # Create logs directory
         self.log_dir = Path('../logs')
         self.log_dir.mkdir(exist_ok=True)
+        # PID tracking file
+        self.run_dir = Path('../run')
+        self.run_dir.mkdir(exist_ok=True)
+        self.pids_file = self.run_dir / 'mcp_pids.json'
         
         # Set signal handlers
         signal.signal(signal.SIGINT, self.signal_handler)
@@ -146,6 +157,14 @@ class MCPServiceManager:
         # Check service status
         print("\n🔍 Checking service status...")
         self.check_all_services()
+
+        # Write PID file
+        try:
+            pids = {sid: svc['process'].pid for sid, svc in self.services.items()}
+            with self.pids_file.open('w', encoding='utf-8') as f:
+                json.dump(pids, f)
+        except Exception as e:
+            print(f"⚠️  Failed to write PID file: {e}")
         
         print("\n🎉 All MCP services started!")
         self.print_service_info()
@@ -205,6 +224,34 @@ class MCPServiceManager:
                 print(f"❌ Error stopping {service['name']} service: {e}")
         
         print("✅ All services stopped")
+        # Clean PID file
+        try:
+            if self.pids_file.exists():
+                self.pids_file.unlink()
+        except Exception:
+            pass
+
+    def stop_from_pids(self):
+        """Stop services using recorded PIDs without a running manager process."""
+        if not self.pids_file.exists():
+            print("No PID file found; nothing to stop.")
+            return
+        try:
+            with self.pids_file.open('r', encoding='utf-8') as f:
+                pids = json.load(f)
+        except Exception as e:
+            print(f"Failed to read PID file: {e}")
+            return
+        for name, pid in pids.items():
+            try:
+                print(f"Stopping {name} (PID {pid})...")
+                os.kill(pid, signal.SIGTERM)
+            except Exception:
+                pass
+        try:
+            self.pids_file.unlink()
+        except Exception:
+            pass
     
     def status(self):
         """Display service status"""
@@ -223,14 +270,17 @@ class MCPServiceManager:
 
 def main():
     """Main function"""
-    if len(sys.argv) > 1 and sys.argv[1] == 'status':
-        # Status check mode
-        manager = MCPServiceManager()
-        manager.status()
-    else:
-        # Startup mode
-        manager = MCPServiceManager()
-        manager.start_all_services()
+    manager = MCPServiceManager()
+    if len(sys.argv) > 1:
+        cmd = sys.argv[1]
+        if cmd == 'status':
+            manager.status()
+            return
+        if cmd == 'stop':
+            manager.stop_from_pids()
+            return
+    # Default: start
+    manager.start_all_services()
 
 if __name__ == "__main__":
     main()

@@ -161,6 +161,10 @@ class BaseAgent:
                 "transport": "streamable_http",
                 "url": f"http://localhost:{os.getenv('TRADE_HTTP_PORT', '8002')}/mcp",
             },
+            "ibkr": {
+                "transport": "streamable_http",
+                "url": f"http://localhost:{os.getenv('IBKR_HTTP_PORT', '8005')}/mcp",
+            },
         }
     
     async def initialize(self) -> None:
@@ -210,7 +214,9 @@ class BaseAgent:
     
     def _setup_logging(self, today_date: str) -> str:
         """Set up log file path"""
-        log_path = os.path.join(self.base_log_path, self.signature, 'log', today_date)
+        # Replace colons with dashes for Windows compatibility
+        safe_date = today_date.replace(':', '-')
+        log_path = os.path.join(self.base_log_path, self.signature, 'log', safe_date)
         if not os.path.exists(log_path):
             os.makedirs(log_path)
         return os.path.join(log_path, "log.jsonl")
