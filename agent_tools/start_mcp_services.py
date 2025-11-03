@@ -6,6 +6,15 @@ Start all four MCP services: Math, Search, TradeTools, LocalPrices
 
 import os
 import sys
+
+# Fix Windows console encoding
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except:
+        pass
+
 import time
 import signal
 import subprocess
@@ -27,6 +36,12 @@ class MCPServiceManager:
             'trade': int(os.getenv('TRADE_HTTP_PORT', '8002')),
             'price': int(os.getenv('GETPRICE_HTTP_PORT', '8003')),
             'ibkr': int(os.getenv('IBKR_HTTP_PORT', '8005'))
+        }
+        # Static client IDs per role (override via env)
+        self.client_ids = {
+            'agent': int(os.getenv('IBKR_AGENT_CLIENT_ID', os.getenv('IB_CLIENT_ID', '2'))),
+            'trade': int(os.getenv('IBKR_TRADETOOLS_CLIENT_ID', os.getenv('IB_CLIENT_ID', '4'))),
+            'ibkr': int(os.getenv('IBKR_SERVICE_CLIENT_ID', os.getenv('IB_CLIENT_ID', '3'))),
         }
         
         # Service configurations
@@ -90,11 +105,21 @@ class MCPServiceManager:
             # Start service process
             log_file = self.log_dir / f"{service_id}.log"
             with open(log_file, 'w') as f:
+                # Prepare per-service environment with role-specific client IDs
+                child_env = os.environ.copy()
+                # Enforce strict static IDs inside services
+                child_env['IBKR_STRICT_IDS'] = child_env.get('IBKR_STRICT_IDS', 'true')
+                if service_id == 'ibkr':
+                    child_env['IBKR_SERVICE_CLIENT_ID'] = str(self.client_ids['ibkr'])
+                if service_id == 'trade':
+                    # Ensure TradeTools uses its own ID when calling price_tools
+                    child_env['IBKR_TRADETOOLS_CLIENT_ID'] = str(self.client_ids['trade'])
                 process = subprocess.Popen(
                     [sys.executable, script_path],
                     stdout=f,
                     stderr=subprocess.STDOUT,
-                    cwd=os.getcwd()
+                    cwd=os.getcwd(),
+                    env=child_env
                 )
             
             self.services[service_id] = {

@@ -190,7 +190,7 @@ async def main(config_path=None):
             print(f"⏱️  Watchdog enabled: will stop after {max_runtime_min} minutes")
         except Exception:
             deadline = None
-
+                    
     for model_config in enabled_models:
         # Read basemodel and signature directly from configuration file
         model_name = model_config.get("name", "unknown")

@@ -187,3 +187,4 @@ if __name__ == "__main__":
         print("  2. Network connection")
         print("  3. DeepSeek service status")
 
+

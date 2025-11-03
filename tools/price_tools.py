@@ -6,12 +6,144 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import sys
+import time
+import threading
+import atexit
 
 # 将项目根目录加入 Python 路径，便于从子目录直接运行本文件
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 from tools.general_tools import get_config_value
+
+# --- IBKR connection singleton to avoid concurrent per-call connects ---
+_IB_SINGLETON = None
+_IB_LOCK = threading.RLock()
+
+# Optional debug logging
+def _dbg(msg: str) -> None:
+    try:
+        if os.getenv("IBKR_DEBUG", "false").lower() in ("1", "true", "yes", "on"):
+            print(f"IBKR_DEBUG: {msg}")
+    except Exception:
+        pass
+
+# Install safe wrapper to ignore unsolicited completedOrder events
+def _install_safe_completed_order_wrapper() -> None:
+    try:
+        import ib_insync.wrapper as _ib_wrapper_mod
+    except Exception:
+        return
+    try:
+        if getattr(_install_safe_completed_order_wrapper, "_installed", False):
+            return
+        _install_safe_completed_order_wrapper._installed = True  # type: ignore[attr-defined]
+        _orig_completed = _ib_wrapper_mod.Wrapper.completedOrder
+
+        def _safe_completed(self, contract, order, orderState):
+            try:
+                res = getattr(self, '_results', None)
+                if not isinstance(res, dict) or 'completedOrders' not in res:
+                    return  # ignore unsolicited events when not collecting
+            except Exception:
+                return
+            try:
+                return _orig_completed(self, contract, order, orderState)
+            except Exception:
+                return
+
+        _ib_wrapper_mod.Wrapper.completedOrder = _safe_completed
+        _dbg("Installed safe completedOrder wrapper")
+    except Exception:
+        pass
+
+def _install_decoder_guard() -> None:
+    try:
+        import ib_insync.decoder as _ib_decoder_mod
+    except Exception:
+        return
+    try:
+        if getattr(_install_decoder_guard, "_installed", False):
+            return
+        _install_decoder_guard._installed = True  # type: ignore[attr-defined]
+        _orig_interpret = _ib_decoder_mod.Decoder.interpret
+        def _safe_interpret(self, fields):
+            try:
+                return _orig_interpret(self, fields)
+            except KeyError:
+                # Unknown/unsupported message id (e.g., 176 currentTime string); ignore
+                return
+        _ib_decoder_mod.Decoder.interpret = _safe_interpret
+        _dbg("Installed decoder guard for unknown message ids")
+    except Exception:
+        pass
+
+def _resolve_ib_ids() -> Tuple[str, int, int, Optional[str]]:
+    host = os.getenv("IB_HOST", "127.0.0.1")
+    port = int(os.getenv("IB_PORT", "7497"))
+    chosen_env_key = None
+    for key in ("IBKR_AGENT_CLIENT_ID", "IBKR_TRADETOOLS_CLIENT_ID", "IBKR_SERVICE_CLIENT_ID", "IB_CLIENT_ID"):
+        if os.getenv(key) is not None:
+            chosen_env_key = key
+            break
+    client_id = int(os.getenv(chosen_env_key, "2"))
+    return host, port, client_id, chosen_env_key
+
+def _get_ib_singleton():
+    global _IB_SINGLETON
+    with _IB_LOCK:
+        _install_safe_completed_order_wrapper()
+        _install_decoder_guard()
+        if _IB_SINGLETON is None:
+            from ib_insync import IB
+            _IB_SINGLETON = IB()
+        if not _IB_SINGLETON.isConnected():
+            host, port, client_id, src = _resolve_ib_ids()
+            strict = os.getenv("IBKR_STRICT_IDS", "true").lower() in ("1", "true", "yes", "on")
+            _dbg(f"singleton connect {host}:{port} clientId={client_id} (source={src}) strict={strict}")
+            if strict:
+                _IB_SINGLETON.connect(host, port, clientId=client_id, timeout=5)
+            else:
+                connected = False
+                for bump in range(0, 16):
+                    try:
+                        _IB_SINGLETON.connect(host, port, clientId=client_id + bump, timeout=5)
+                        if bump > 0:
+                            _dbg(f"clientId {client_id} in use; switched to {client_id + bump}")
+                        connected = True
+                        break
+                    except Exception as e:
+                        if "client id" in str(e).lower():
+                            time.sleep(0.2)
+                            continue
+                        raise
+                if not connected:
+                    raise RuntimeError("IBKR: Unable to obtain a unique client id")
+            _IB_SINGLETON.sleep(0.3)
+            try:
+                _IB_SINGLETON.reqMarketDataType(3)
+                _IB_SINGLETON.sleep(0.2)
+            except Exception:
+                pass
+            # No-op handler for optional/unknown message ids (e.g., 176 currentTime string)
+            try:
+                dec = getattr(_IB_SINGLETON.client, 'decoder', None)
+                if dec and hasattr(dec, 'handlers') and isinstance(dec.handlers, dict):
+                    dec.handlers.setdefault(176, lambda fields: None)
+                    _dbg("Installed no-op decoder handler for msgId 176")
+            except Exception:
+                pass
+    return _IB_SINGLETON
+
+def _ib_disconnect():
+    global _IB_SINGLETON
+    try:
+        if _IB_SINGLETON is not None and _IB_SINGLETON.isConnected():
+            _IB_SINGLETON.disconnect()
+    except Exception:
+        pass
+
+atexit.register(_ib_disconnect)
 
 all_nasdaq_100_symbols = [
     "NVDA", "MSFT", "AAPL", "GOOG", "GOOGL", "AMZN", "META", "AVGO", "TSLA",
@@ -139,20 +271,8 @@ def get_open_prices(today_date: str, symbols: List[str], merged_path: Optional[s
     if source == "IBKR":
         try:
             # Lazy import to avoid dependency when not needed
-            from ib_insync import IB, Stock
-            ib = IB()
-            host = os.getenv("IB_HOST", "127.0.0.1")
-            port = int(os.getenv("IB_PORT", "7497"))
-            client_id = int(os.getenv("IB_CLIENT_ID", "123"))
-            if not ib.isConnected():
-                ib.connect(host, port, clientId=client_id, timeout=5)
-                ib.sleep(0.3)  # Allow connection to stabilize
-            # Use delayed market data if no live subscription
-            try:
-                ib.reqMarketDataType(3)
-                ib.sleep(0.2)  # Allow market data type change to register
-            except Exception:
-                pass
+            from ib_insync import Stock
+            ib = _get_ib_singleton()
             for sym in symbols:
                 try:
                     contract = Stock(sym, "SMART", "USD")
@@ -189,11 +309,6 @@ def get_open_prices(today_date: str, symbols: List[str], merged_path: Optional[s
                     ib.cancelMktData(contract)
                 except Exception:
                     results[f"{sym}_price"] = None
-            # Do not keep long-lived connections in utility call
-            try:
-                ib.disconnect()
-            except Exception:
-                pass
             return results
         except Exception:
             # Fallback to local data if IBKR unavailable

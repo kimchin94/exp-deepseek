@@ -218,9 +218,54 @@ class BaseAgent_Hour(BaseAgent):
         # Handle trading results
         await self._handle_trading_result(today_date)
     
+    def _generate_hourly_timestamps(self, init_date: str, end_date: str) -> List[str]:
+        """
+        Generate hourly timestamps for IBKR live trading
+        
+        Args:
+            init_date: Start date (YYYY-MM-DD HH:MM:SS)
+            end_date: End date (YYYY-MM-DD HH:MM:SS)
+            
+        Returns:
+            List of hourly timestamps within the range
+        """
+        init_dt = datetime.strptime(init_date, "%Y-%m-%d %H:%M:%S")
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d %H:%M:%S")
+        
+        # Get last processed timestamp from position file
+        last_processed_dt = None
+        if os.path.exists(self.position_file):
+            with open(self.position_file, "r") as f:
+                for line in f:
+                    doc = json.loads(line)
+                    current_date = doc.get('date')
+                    if current_date and ' ' in current_date:
+                        current_dt = datetime.strptime(current_date, "%Y-%m-%d %H:%M:%S")
+                        if last_processed_dt is None or current_dt > last_processed_dt:
+                            last_processed_dt = current_dt
+        else:
+            # Register agent if no position file
+            self.register_agent()
+        
+        # Start from the later of init_date or last_processed + 1 hour
+        if last_processed_dt and last_processed_dt >= init_dt:
+            start_dt = last_processed_dt + timedelta(hours=1)
+        else:
+            start_dt = init_dt
+        
+        # Generate hourly timestamps
+        trading_times = []
+        current_dt = start_dt
+        while current_dt <= end_dt:
+            trading_times.append(current_dt.strftime("%Y-%m-%d %H:%M:%S"))
+            current_dt += timedelta(hours=1)
+        
+        print(f"📅 Generated {len(trading_times)} hourly timestamps from {start_dt} to {end_dt}")
+        return trading_times
+    
     def get_trading_dates(self, init_date: str, end_date: str) -> List[str]:
         """
-        Get trading date list from merged.jsonl for hour-level data
+        Get trading date list from merged.jsonl for hour-level data, or generate for IBKR
         
         Args:
             init_date: Start date (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)
@@ -241,10 +286,20 @@ class BaseAgent_Hour(BaseAgent):
         else:
             raise ValueError("Only support hour-level trading. Please use YYYY-MM-DD HH:MM:SS format.")
         
+        # Check if using IBKR for live data
+        price_source = os.getenv("PRICE_SOURCE", "LOCAL").upper()
+        use_ibkr = (price_source == "IBKR")
+        
         # Get merged.jsonl path
         base_dir = Path(__file__).resolve().parents[2]
         merged_file = base_dir / "data" / "merged.jsonl"
         
+        # If using IBKR or no merged file, generate hourly timestamps
+        if use_ibkr or not merged_file.exists():
+            print(f"🔴 {'Using IBKR live data' if use_ibkr else 'No merged.jsonl found'} - generating hourly timestamps")
+            return self._generate_hourly_timestamps(init_date, end_date)
+        
+        # Otherwise, read from merged.jsonl (existing logic)
         if not merged_file.exists():
             return []
         
